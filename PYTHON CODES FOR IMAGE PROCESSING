@@ -1,0 +1,22 @@
+import matplotlib.pyplot as plt
+import cv2
+from glob import glob
+
+# Access the files
+files = glob('C:\Users\ASUS\Downloads\baboon.jpg')
+
+if files:  # Check if the list is not empty
+    file_path = files[0]  # Get the first file from the list
+
+    # Read the image using Matplotlib
+    img_mpl = plt.imread(file_path)
+
+    # Read the image using OpenCV
+    img_cv2 = cv2.imread(file_path)
+
+    # Display the images
+    plt.imshow(img_mpl)
+    plt.title("Image using Matplotlib")
+    plt.show()
+else:
+    print("No files found.")BUT IN THIS GIVEN CODE ON THE LINE - files = glob ( "C:\Users\ASUS\Downloads\baboon.jpg )
