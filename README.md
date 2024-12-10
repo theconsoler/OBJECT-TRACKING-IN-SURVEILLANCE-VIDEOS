@@ -30,8 +30,11 @@ pip install opencv-python matplotlib pandas torch torchvision torchaudio imageai
 
 Download YOLO models:
 
-tiny-yolov3.pt
-yolov4.cfg
+https://sourceforge.net/projects/imageai.mirror/files/3.0.0-pretrained/tiny-yolov3.pt/download
+
+https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.weights
+
+https://github.com/pjreddie/darknet/blob/master/data/coco.names
 
 Place the YOLO files in the models directory:
 
