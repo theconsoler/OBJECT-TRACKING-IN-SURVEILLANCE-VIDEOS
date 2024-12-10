@@ -86,3 +86,5 @@ Example outputs include:
 Real-time object tracking on video frames.
 Annotated objects with labels and confidence scores.
 Visualizations of RGB channels and pixel distributions.
+
+FOR GETTING MORE DEFINITIVE IDEA ABOUT HOW TO EXECUTE ALL THE PROCESS GO TO MY PROJECT FILE DIRECTORY !!
