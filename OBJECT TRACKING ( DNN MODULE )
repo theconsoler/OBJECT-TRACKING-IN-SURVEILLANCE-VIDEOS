@@ -3,7 +3,7 @@ import numpy as np
 import math
 
 # Initialize video capture
-input_video_path = "C:/Users/ASUS/Downloads/jupyter projects/Cars On Highway.mp4"
+input_video_path = "C:/Users/ASUS/Downloads/jupyter projects/Car Road Transportation.mp4"
 output_video_path = "output.avi"
 
 cap = cv2.VideoCapture(input_video_path)
