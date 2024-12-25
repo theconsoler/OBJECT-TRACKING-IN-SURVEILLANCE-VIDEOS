@@ -1,134 +1,127 @@
 import cv2
-import numpy as np
 import math
+import os
 
-# Initialize video capture
-input_video_path = "C:/Users/ASUS/Downloads/jupyter projects/Car Road Transportation.mp4"
-output_video_path = "output.avi"
+# Load video file
+video_path = "C:/Users/ASUS/Downloads/jupyter projects/Car Road Transportation.mp4"
+cap = cv2.VideoCapture(video_path)
 
-cap = cv2.VideoCapture(input_video_path)
+# Check if the video opened successfully
 if not cap.isOpened():
-    print("Error: Unable to open video file.")
+    print("Error: Couldn't open video file.")
     exit()
 
+# Get video properties for saving
 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 fps = int(cap.get(cv2.CAP_PROP_FPS))
 
-# Initialize video writer
-fourcc = cv2.VideoWriter_fourcc(*'XVID')
-output_video = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
+# Create the output directory if it doesn't exist
+output_dir = "output"
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
 
-# Load YOLO model
-model_cfg = "C:/Users/ASUS/Downloads/jupyter projects/yolov4.cfg"
-model_weights = "C:/Users/ASUS/Downloads/jupyter projects/yolov4.weights"
-labels_path = "C:/Users/ASUS/Downloads/jupyter projects/coco.names.txt"
+# Define the codec and create VideoWriter object
+output_video = cv2.VideoWriter(
+    os.path.join(output_dir, "processed_video.avi"), cv2.VideoWriter_fourcc(*"XVID"), fps, (frame_width, frame_height)
+)
 
-net = cv2.dnn.readNetFromDarknet(model_cfg, model_weights)
-net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+# Check if VideoWriter was successfully initialized
+if not output_video.isOpened():
+    print("Error: Couldn't open the video writer.")
+    exit()
 
-with open(labels_path, "r") as f:
-    labels = f.read().strip().split("\n")
+# Initialize variables
+count = 0
+center_points_prev_frame = []
+tracking_objects = {}
+track_id = 0
 
-# Parameters for detection
-conf_threshold = 0.6
-nms_threshold = 0.3
-blob_size = (320, 320)
+# Create a background subtractor (using MOG2 in this case)
+fgbg = cv2.createBackgroundSubtractorMOG2()
 
-# Object tracking variables
-tracked_objects = {}
-object_id = 0
+# Initialize the minimum bounding box size for car detection (tune this based on your use case)
+min_car_area = 500  # Minimum area of bounding box to track (adjust as necessary)
+max_car_area = 5000  # Maximum area of bounding box (adjust as necessary)
 
-# Function to calculate Euclidean distance
-def euclidean_distance(p1, p2):
-    return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
-
-# Function to perform object detection
-def detect_objects(frame):
-    blob = cv2.dnn.blobFromImage(frame, scalefactor=1 / 255.0, size=blob_size, swapRB=True, crop=False)
-    net.setInput(blob)
-    layer_names = net.getUnconnectedOutLayersNames()
-    layer_outputs = net.forward(layer_names)
-
-    boxes = []
-    confidences = []
-    class_ids = []
-
-    for output in layer_outputs:
-        for detection in output:
-            scores = detection[5:]
-            class_id = np.argmax(scores)
-            confidence = scores[class_id]
-
-            if confidence > conf_threshold:
-                box = detection[0:4] * np.array([frame_width, frame_height, frame_width, frame_height])
-                (center_x, center_y, width, height) = box.astype("int")
-
-                x = int(center_x - (width / 2))
-                y = int(center_y - (height / 2))
-
-                boxes.append([x, y, int(width), int(height)])
-                confidences.append(float(confidence))
-                class_ids.append(class_id)
-
-    indices = cv2.dnn.NMSBoxes(boxes, confidences, conf_threshold, nms_threshold)
-    filtered_boxes = []
-    filtered_class_ids = []
-    filtered_confidences = []
-
-    if len(indices) > 0:
-        for i in indices.flatten():
-            filtered_boxes.append(boxes[i])
-            filtered_class_ids.append(class_ids[i])
-            filtered_confidences.append(confidences[i])
-
-    return filtered_boxes, filtered_class_ids, filtered_confidences
-
-# Main loop
-frame_count = 0
-frame_skip = 5
-
-while cap.isOpened():
+while True:
     ret, frame = cap.read()
     if not ret:
         break
 
-    frame_count += 1
-    if frame_count % frame_skip != 0:
-        continue
+    # Apply background subtraction
+    fg_mask = fgbg.apply(frame)
 
-    boxes, class_ids, confidences = detect_objects(frame)
+    # Find contours in the mask (i.e., detected moving objects)
+    contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    for box, class_id, confidence in zip(boxes, class_ids, confidences):
-        (x, y, w, h) = box
-        center_x, center_y = x + w // 2, y + h // 2
+    center_points_cur_frame = []
 
-        # Tracking logic
-        min_distance = float("inf")
-        matched_id = None
+    for contour in contours:
+        # Filter out small or too large contours (noise and irrelevant objects)
+        if cv2.contourArea(contour) < min_car_area or cv2.contourArea(contour) > max_car_area:
+            continue
 
-        for obj_id, (prev_x, prev_y) in tracked_objects.items():
-            distance = euclidean_distance((center_x, center_y), (prev_x, prev_y))
-            if distance < min_distance and distance < 50:
-                min_distance = distance
-                matched_id = obj_id
+        # Get the bounding box around each contour
+        (x, y, w, h) = cv2.boundingRect(contour)
 
-        if matched_id is None:
-            object_id += 1
-            matched_id = object_id
+        # Calculate the center points of the bounding box
+        cx = int((x + x + w) / 2)
+        cy = int((y + y + h) / 2)
+        center_points_cur_frame.append((cx, cy))
 
-        tracked_objects[matched_id] = (center_x, center_y)
-
-        # Draw bounding box and label
-        label = f"{labels[class_id]} {matched_id} ({confidence:.2f})"
+        # Draw rectangle around the object
         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    # Write processed frame
+    # Update tracking objects only if cars are detected consistently
+    for pt in center_points_cur_frame:
+        same_object_detected = False
+        for object_id, prev_pt in tracking_objects.items():
+            distance = math.hypot(prev_pt[0] - pt[0], prev_pt[1] - pt[1])
+
+            # Only update if the object is sufficiently close (distance threshold)
+            if distance < 50:  # Threshold distance for matching objects (adjust as needed)
+                tracking_objects[object_id] = pt
+                same_object_detected = True
+                break
+
+        # Assign a new ID to a new object (if no match found)
+        if not same_object_detected:
+            tracking_objects[track_id] = pt
+            track_id += 1
+
+    # Draw tracking points and IDs
+    for object_id, pt in tracking_objects.items():
+        # Draw a filled circle for tracking
+        cv2.circle(frame, pt, 5, (0, 0, 255), -1)
+
+        # Ensure IDs are drawn on top of the frame
+        cv2.putText(
+            frame,
+            str(object_id),
+            (pt[0] - 10, pt[1] - 10),  # Offset for better visibility
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),  # White text for visibility
+            2,
+            lineType=cv2.LINE_AA,  # Anti-aliased text
+        )
+
+    # Write the processed frame to the output video
     output_video.write(frame)
-    print(f"Processed frame {frame_count}")
 
+    # Optionally, display the frame (debugging or if you want to watch the video while processing)
+    # cv2.imshow("Frame", frame)
+
+    # Exit if the user presses 'q' (optional)
+    # if cv2.waitKey(1) & 0xFF == ord('q'):
+    #     break
+
+# Release everything when done
 cap.release()
 output_video.release()
-print("Processing complete. Output saved as output.avi")
+
+# Optionally, close all OpenCV windows (if cv2.imshow is used)
+# cv2.destroyAllWindows()
+
+print("Processing complete. The output video is saved in the 'output' directory.")
