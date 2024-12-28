@@ -1,0 +1,124 @@
+import cv2
+import math
+import os
+import gradio as gr
+
+def process_video(input_video):
+    # Load video file
+    cap = cv2.VideoCapture(input_video.name)
+
+    # Check if the video opened successfully
+    if not cap.isOpened():
+        return "Error: Couldn't open video file.", None
+
+    # Get video properties for saving
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+
+    # Create the output directory if it doesn't exist
+    output_dir = "output"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # Define the codec and create VideoWriter object
+    output_video_path = os.path.join(output_dir, "processed_video.avi")
+    output_video = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*"XVID"), fps, (frame_width, frame_height))
+
+    # Check if VideoWriter was successfully initialized
+    if not output_video.isOpened():
+        return "Error: Couldn't open the video writer.", None
+
+    # Initialize variables
+    count = 0
+    center_points_prev_frame = []
+    tracking_objects = {}
+    track_id = 0
+
+    # Create a background subtractor (using MOG2 in this case)
+    fgbg = cv2.createBackgroundSubtractorMOG2()
+
+    # Initialize the minimum bounding box size for car detection (tune this based on your use case)
+    min_car_area = 500  # Minimum area of bounding box to track (adjust as necessary)
+    max_car_area = 5000  # Maximum area of bounding box (adjust as necessary)
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Apply background subtraction
+        fg_mask = fgbg.apply(frame)
+
+        # Find contours in the mask (i.e., detected moving objects)
+        contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        center_points_cur_frame = []
+
+        for contour in contours:
+            # Filter out small or too large contours (noise and irrelevant objects)
+            if cv2.contourArea(contour) < min_car_area or cv2.contourArea(contour) > max_car_area:
+                continue
+
+            # Get the bounding box around each contour
+            (x, y, w, h) = cv2.boundingRect(contour)
+
+            # Calculate the center points of the bounding box
+            cx = int((x + x + w) / 2)
+            cy = int((y + y + h) / 2)
+            center_points_cur_frame.append((cx, cy))
+
+            # Draw rectangle around the object
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+        # Update tracking objects only if cars are detected consistently
+        for pt in center_points_cur_frame:
+            same_object_detected = False
+            for object_id, prev_pt in tracking_objects.items():
+                distance = math.hypot(prev_pt[0] - pt[0], prev_pt[1] - pt[1])
+
+                # Only update if the object is sufficiently close (distance threshold)
+                if distance < 50:  # Threshold distance for matching objects (adjust as needed)
+                    tracking_objects[object_id] = pt
+                    same_object_detected = True
+                    break
+
+            # Assign a new ID to a new object (if no match found)
+            if not same_object_detected:
+                tracking_objects[track_id] = pt
+                track_id += 1
+
+        # Draw tracking points and IDs
+        for object_id, pt in tracking_objects.items():
+            # Draw a filled circle for tracking
+            cv2.circle(frame, pt, 5, (0, 0, 255), -1)
+
+            # Ensure IDs are drawn on top of the frame
+            cv2.putText(
+                frame,
+                str(object_id),
+                (pt[0] - 10, pt[1] - 10),  # Offset for better visibility
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),  # White text for visibility
+                2,
+                lineType=cv2.LINE_AA,  # Anti-aliased text
+            )
+
+        # Write the processed frame to the output video
+        output_video.write(frame)
+
+    # Release everything when done
+    cap.release()
+    output_video.release()
+
+    return "Processing complete. The output video is saved.", output_video_path
+
+# Create Gradio interface
+gr.Interface(
+    fn=process_video,
+    inputs=gr.File(label="Upload Video"),
+    outputs=[gr.Textbox(label="Status"), gr.File(label="Processed Video")],
+    title="Object Tracking in Video",
+    description="Upload a video to track cars and generate a processed output video.",
+).launch()
