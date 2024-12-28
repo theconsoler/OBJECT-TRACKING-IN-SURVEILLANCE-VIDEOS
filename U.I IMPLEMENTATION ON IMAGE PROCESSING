@@ -1,0 +1,44 @@
+import gradio as gr
+import cv2
+import numpy as np
+from matplotlib import pyplot as plt
+
+# Function for processing the image
+def process_image(image, action):
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB for display
+    if action == "View RGB Channels":
+        channels = [image[:, :, i] for i in range(3)]  # Split into R, G, B
+        fig, axs = plt.subplots(1, 3, figsize=(10, 5))
+        for i, channel in enumerate(channels):
+            axs[i].imshow(channel, cmap=["Reds", "Greens", "Blues"][i])
+            axs[i].axis('off')
+            axs[i].set_title(["Red", "Green", "Blue"][i])
+        plt.tight_layout()
+        plt.savefig("rgb_channels.png")
+        plt.close()
+        return cv2.imread("rgb_channels.png")  # Return the saved image as output
+    elif action == "Apply Gaussian Blur":
+        blurred = cv2.GaussianBlur(image, (15, 15), 0)
+        return blurred  # Return blurred image
+    elif action == "Pixel Intensity Histogram":
+        plt.hist(image.ravel(), bins=256, range=(0, 256))
+        plt.title("Pixel Intensity Histogram")
+        plt.xlabel("Pixel Value")
+        plt.ylabel("Frequency")
+        plt.savefig("histogram.png")
+        plt.close()
+        return cv2.imread("histogram.png")  # Return the saved histogram image
+
+# Gradio interface
+interface1 = gr.Interface(
+    fn=process_image,
+    inputs=[
+        gr.Image(type="numpy", label="Upload Image"),
+        gr.Radio(["View RGB Channels", "Apply Gaussian Blur", "Pixel Intensity Histogram"], label="Action")
+    ],
+    outputs=gr.Image(type="numpy", label="Output Image"),
+    title="Image Processing Using OpenCV"
+)
+
+# Launch
+interface1.launch()
